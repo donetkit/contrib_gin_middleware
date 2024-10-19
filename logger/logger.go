@@ -139,7 +139,7 @@ func ErrorLoggerT(typ gin.ErrorType) gin.HandlerFunc {
 				if len(rawData) <= cfg.bodyLength {
 					param.RequestData = string(rawData)
 				} else {
-					param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(writer.body.Bytes()[0:cfg.bodyLength]))
+					param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(rawData[0:cfg.bodyLength]))
 				}
 
 				if writer.body.Len() <= cfg.rawDataLength {
@@ -224,7 +224,7 @@ func New(opts ...Option) gin.HandlerFunc {
 		if len(rawData) <= cfg.bodyLength {
 			param.RequestData = string(rawData)
 		} else {
-			param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(writer.body.Bytes()[0:cfg.bodyLength]))
+			param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(rawData[0:cfg.bodyLength]))
 		}
 
 		if writer.body.Len() <= cfg.rawDataLength {
