@@ -1,6 +1,7 @@
 package recovery
 
 import (
+	"errors"
 	"fmt"
 	"github.com/donetkit/contrib-log/glog"
 	"net"
@@ -22,7 +23,8 @@ func New(logger glog.ILogger, stack ...bool) gin.HandlerFunc {
 			if err := recover(); err != nil {
 				var brokenPipe bool
 				if ne, ok := err.(*net.OpError); ok {
-					if se, ok := ne.Err.(*os.SyscallError); ok {
+					var se *os.SyscallError
+					if errors.As(ne.Err, &se) {
 						if strings.Contains(strings.ToLower(se.Error()), "broken pipe") || strings.Contains(strings.ToLower(se.Error()), "connection reset by peer") {
 							brokenPipe = true
 						}

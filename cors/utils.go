@@ -9,7 +9,7 @@ import (
 
 type converter func(string) string
 
-func generateNormalHeaders(c *Config) http.Header {
+func generateNormalHeaders(c Config) http.Header {
 	headers := make(http.Header)
 	if c.AllowCredentials {
 		headers.Set("Access-Control-Allow-Credentials", "true")
@@ -26,7 +26,7 @@ func generateNormalHeaders(c *Config) http.Header {
 	return headers
 }
 
-func generatePreflightHeaders(c *Config) http.Header {
+func generatePreflightHeaders(c Config) http.Header {
 	headers := make(http.Header)
 	if c.AllowCredentials {
 		headers.Set("Access-Control-Allow-Credentials", "true")
@@ -45,6 +45,11 @@ func generatePreflightHeaders(c *Config) http.Header {
 		value := strconv.FormatInt(int64(c.MaxAge/time.Second), 10)
 		headers.Set("Access-Control-Max-Age", value)
 	}
+
+	if c.AllowPrivateNetwork {
+		headers.Set("Access-Control-Allow-Private-Network", "true")
+	}
+
 	if c.AllowAllOrigins {
 		headers.Set("Access-Control-Allow-Origin", "*")
 	} else {

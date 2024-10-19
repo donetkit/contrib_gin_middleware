@@ -227,19 +227,16 @@ func New(opts ...Option) gin.HandlerFunc {
 		if len(rawData) <= cfg.bodyLength {
 			param.RequestData = string(rawData)
 		} else {
-			param.RequestData = fmt.Sprintf("request data is too large, limit size: %d", cfg.bodyLength)
+			param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(writer.body.Bytes()[0:cfg.bodyLength]))
 		}
 
 		if writer.body.Len() <= cfg.rawDataLength {
 			param.ResponseData = writer.body.String()
 		} else {
-			param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d", cfg.rawDataLength)
+			param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d \n%s", cfg.rawDataLength, string(writer.body.Bytes()[0:cfg.rawDataLength]))
 		}
 
-		cfg.logger.Debug(param.RequestData)
-		cfg.logger.Debug(param.ResponseData)
-
-		cfg.logger.Infof("%s", cfg.formatter(param))
+		cfg.logger.Debugf("%s", cfg.formatter(param))
 
 		if cfg.writerLogFn != nil {
 			param.RequestProto = c.Request.Proto

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -12,12 +13,53 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func performRequest(r http.Handler, method, origin string) *httptest.ResponseRecorder {
-	return performRequestWithHeaders(r, method, origin, http.Header{})
+func newTestRouter(config Config) *gin.Engine {
+	router := gin.New()
+	router.Use(New(config))
+	router.GET("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "get")
+	})
+	router.POST("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "post")
+	})
+	router.PATCH("/", func(c *gin.Context) {
+		c.String(http.StatusOK, "patch")
+	})
+	return router
 }
 
-func performRequestWithHeaders(r http.Handler, method, origin string, header http.Header) *httptest.ResponseRecorder {
-	req, _ := http.NewRequestWithContext(context.Background(), method, "/", nil)
+func multiGroupRouter(config Config) *gin.Engine {
+	router := gin.New()
+	router.Use(New(config))
+
+	app1 := router.Group("/app1")
+	app1.GET("", func(c *gin.Context) {
+		c.String(http.StatusOK, "app1")
+	})
+
+	app2 := router.Group("/app2")
+	app2.GET("", func(c *gin.Context) {
+		c.String(http.StatusOK, "app2")
+	})
+
+	app3 := router.Group("/app3")
+	app3.GET("", func(c *gin.Context) {
+		c.String(http.StatusOK, "app3")
+	})
+
+	return router
+}
+
+func performRequest(r http.Handler, method, origin string) *httptest.ResponseRecorder {
+	return performRequestWithHeaders(r, method, "/", origin, http.Header{})
+}
+
+func performRequestWithHeaders(
+	r http.Handler,
+	method, path, origin string,
+	header http.Header,
+) *httptest.ResponseRecorder {
+	req, _ := http.NewRequestWithContext(context.Background(), method, path, nil)
 	// From go/net/http/request.go:
 	// For incoming requests, the Host header is promoted to the
 	// Request.Host field and removed from the Header map.
@@ -52,15 +94,24 @@ func TestConfigAddAllow(t *testing.T) {
 }
 
 func TestBadConfig(t *testing.T) {
-	assert.Panics(t, func() { New() })
-	assert.Panics(t, func() { New(WithAllowOrigins([]string{"http://google.com"}), WithAllowAllOrigins(true)) })
-
-	assert.Panics(t, func() { New(WithAllowOrigins([]string{"http://google.com"}), WithAllowAllOrigins(true)) })
-	var fn = func(origin string) bool { return false }
-	assert.Panics(t, func() { New(WithAllowOriginFunc(fn), WithAllowAllOrigins(true)) })
-
-	assert.Panics(t, func() { New(WithAllowOrigins([]string{"google.com"}), WithAllowAllOrigins(true)) })
-
+	assert.Panics(t, func() { New(Config{}) })
+	assert.Panics(t, func() {
+		New(Config{
+			AllowAllOrigins: true,
+			AllowOrigins:    []string{"http://google.com"},
+		})
+	})
+	assert.Panics(t, func() {
+		New(Config{
+			AllowAllOrigins: true,
+			AllowOriginFunc: func(origin string) bool { return false },
+		})
+	})
+	assert.Panics(t, func() {
+		New(Config{
+			AllowOrigins: []string{"google.com"},
+		})
+	})
 }
 
 func TestNormalize(t *testing.T) {
@@ -86,14 +137,14 @@ func TestConvert(t *testing.T) {
 }
 
 func TestGenerateNormalHeaders_AllowAllOrigins(t *testing.T) {
-	header := generateNormalHeaders(&Config{
+	header := generateNormalHeaders(Config{
 		AllowAllOrigins: false,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Origin"), "")
 	assert.Equal(t, header.Get("Vary"), "Origin")
 	assert.Len(t, header, 1)
 
-	header = generateNormalHeaders(&Config{
+	header = generateNormalHeaders(Config{
 		AllowAllOrigins: true,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Origin"), "*")
@@ -102,7 +153,7 @@ func TestGenerateNormalHeaders_AllowAllOrigins(t *testing.T) {
 }
 
 func TestGenerateNormalHeaders_AllowCredentials(t *testing.T) {
-	header := generateNormalHeaders(&Config{
+	header := generateNormalHeaders(Config{
 		AllowCredentials: true,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Credentials"), "true")
@@ -111,7 +162,7 @@ func TestGenerateNormalHeaders_AllowCredentials(t *testing.T) {
 }
 
 func TestGenerateNormalHeaders_ExposedHeaders(t *testing.T) {
-	header := generateNormalHeaders(&Config{
+	header := generateNormalHeaders(Config{
 		ExposeHeaders: []string{"X-user", "xPassword"},
 	})
 	assert.Equal(t, header.Get("Access-Control-Expose-Headers"), "X-User,Xpassword")
@@ -120,14 +171,14 @@ func TestGenerateNormalHeaders_ExposedHeaders(t *testing.T) {
 }
 
 func TestGeneratePreflightHeaders(t *testing.T) {
-	header := generatePreflightHeaders(&Config{
+	header := generatePreflightHeaders(Config{
 		AllowAllOrigins: false,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Origin"), "")
 	assert.Equal(t, header.Get("Vary"), "Origin")
 	assert.Len(t, header, 1)
 
-	header = generateNormalHeaders(&Config{
+	header = generateNormalHeaders(Config{
 		AllowAllOrigins: true,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Origin"), "*")
@@ -136,7 +187,7 @@ func TestGeneratePreflightHeaders(t *testing.T) {
 }
 
 func TestGeneratePreflightHeaders_AllowCredentials(t *testing.T) {
-	header := generatePreflightHeaders(&Config{
+	header := generatePreflightHeaders(Config{
 		AllowCredentials: true,
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Credentials"), "true")
@@ -144,8 +195,17 @@ func TestGeneratePreflightHeaders_AllowCredentials(t *testing.T) {
 	assert.Len(t, header, 2)
 }
 
+func TestGeneratePreflightHeaders_AllowPrivateNetwork(t *testing.T) {
+	header := generatePreflightHeaders(Config{
+		AllowPrivateNetwork: true,
+	})
+	assert.Equal(t, header.Get("Access-Control-Allow-Private-Network"), "true")
+	assert.Equal(t, header.Get("Vary"), "Origin")
+	assert.Len(t, header, 2)
+}
+
 func TestGeneratePreflightHeaders_AllowMethods(t *testing.T) {
-	header := generatePreflightHeaders(&Config{
+	header := generatePreflightHeaders(Config{
 		AllowMethods: []string{"GET ", "post", "PUT", " put  "},
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Methods"), "GET,POST,PUT")
@@ -154,7 +214,7 @@ func TestGeneratePreflightHeaders_AllowMethods(t *testing.T) {
 }
 
 func TestGeneratePreflightHeaders_AllowHeaders(t *testing.T) {
-	header := generatePreflightHeaders(&Config{
+	header := generatePreflightHeaders(Config{
 		AllowHeaders: []string{"X-user", "Content-Type"},
 	})
 	assert.Equal(t, header.Get("Access-Control-Allow-Headers"), "X-User,Content-Type")
@@ -163,7 +223,7 @@ func TestGeneratePreflightHeaders_AllowHeaders(t *testing.T) {
 }
 
 func TestGeneratePreflightHeaders_MaxAge(t *testing.T) {
-	header := generatePreflightHeaders(&Config{
+	header := generatePreflightHeaders(Config{
 		MaxAge: 12 * time.Hour,
 	})
 	assert.Equal(t, header.Get("Access-Control-Max-Age"), "43200") // 12*60*60
@@ -172,7 +232,7 @@ func TestGeneratePreflightHeaders_MaxAge(t *testing.T) {
 }
 
 func TestValidateOrigin(t *testing.T) {
-	cors := newCors(&Config{
+	cors := newCors(Config{
 		AllowAllOrigins: true,
 	})
 	assert.True(t, cors.validateOrigin("http://google.com"))
@@ -180,7 +240,7 @@ func TestValidateOrigin(t *testing.T) {
 	assert.True(t, cors.validateOrigin("example.com"))
 	assert.True(t, cors.validateOrigin("chrome-extension://random-extension-id"))
 
-	cors = newCors(&Config{
+	cors = newCors(Config{
 		AllowOrigins: []string{"https://google.com", "https://github.com"},
 		AllowOriginFunc: func(origin string) bool {
 			return (origin == "http://news.ycombinator.com")
@@ -195,14 +255,14 @@ func TestValidateOrigin(t *testing.T) {
 	assert.False(t, cors.validateOrigin("google.com"))
 	assert.False(t, cors.validateOrigin("chrome-extension://random-extension-id"))
 
-	cors = newCors(&Config{
+	cors = newCors(Config{
 		AllowOrigins: []string{"https://google.com", "https://github.com"},
 	})
 	assert.False(t, cors.validateOrigin("chrome-extension://random-extension-id"))
 	assert.False(t, cors.validateOrigin("file://some-dangerous-file.js"))
 	assert.False(t, cors.validateOrigin("wss://socket-connection"))
 
-	cors = newCors(&Config{
+	cors = newCors(Config{
 		AllowOrigins: []string{
 			"chrome-extension://*",
 			"safari-extension://my-extension-*-app",
@@ -219,7 +279,7 @@ func TestValidateOrigin(t *testing.T) {
 	assert.True(t, cors.validateOrigin("http://api.some-domain.com"))
 	assert.False(t, cors.validateOrigin("http://api.another-domain.com"))
 
-	cors = newCors(&Config{
+	cors = newCors(Config{
 		AllowOrigins:    []string{"file://safe-file.js", "wss://some-session-layer-connection"},
 		AllowFiles:      true,
 		AllowWebSockets: true,
@@ -229,7 +289,7 @@ func TestValidateOrigin(t *testing.T) {
 	assert.True(t, cors.validateOrigin("wss://some-session-layer-connection"))
 	assert.False(t, cors.validateOrigin("ws://not-what-we-expected"))
 
-	cors = newCors(&Config{
+	cors = newCors(Config{
 		AllowOrigins: []string{"*"},
 	})
 	assert.True(t, cors.validateOrigin("http://google.com"))
@@ -238,23 +298,49 @@ func TestValidateOrigin(t *testing.T) {
 	assert.True(t, cors.validateOrigin("chrome-extension://random-extension-id"))
 }
 
-func TestPassesAllowOrigins(t *testing.T) {
-
-	var fn = func(origin string) bool {
-		return origin == "http://github.com"
+func TestValidateTauri(t *testing.T) {
+	c := Config{
+		AllowOrigins:           []string{"tauri://localhost:1234"},
+		AllowBrowserExtensions: true,
 	}
-	router := gin.New()
-	router.Use(New(WithAllowOriginFunc(fn), WithAllowCredentials(false), WithExposeHeaders([]string{"Data", "x-User"}), WithAllowHeaders([]string{"Content-type", "timeStamp "}), WithAllowMethods([]string{" GeT ", "get", "post", "PUT  ", "Head", "POST"}), WithAllowOrigins([]string{"http://google.com"})))
+	err := c.Validate()
+	assert.Error(t, err)
 
-	router.GET("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "get")
+	c = Config{
+		AllowOrigins:           []string{"tauri://localhost:1234"},
+		AllowBrowserExtensions: true,
+		CustomSchemas:          []string{"tauri"},
+	}
+	assert.Nil(t, c.Validate())
+}
+
+func TestDefaultConfig(t *testing.T) {
+	config := DefaultConfig()
+	config.AllowAllOrigins = true
+	router := newTestRouter(config)
+	w := performRequest(router, "GET", "http://google.com")
+	assert.Equal(t, "get", w.Body.String())
+	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, w.Header().Get("Access-Control-Allow-Credentials"))
+	assert.Empty(t, w.Header().Get("Access-Control-Expose-Headers"))
+}
+
+func TestPassesAllowOrigins(t *testing.T) {
+	router := newTestRouter(Config{
+		AllowOrigins:     []string{"http://google.com"},
+		AllowMethods:     []string{" GeT ", "get", "post", "PUT  ", "Head", "POST"},
+		AllowHeaders:     []string{"Content-type", "timeStamp "},
+		ExposeHeaders:    []string{"Data", "x-User"},
+		AllowCredentials: false,
+		MaxAge:           12 * time.Hour,
+		AllowOriginFunc: func(origin string) bool {
+			return origin == "http://github.com"
+		},
+		AllowOriginWithContextFunc: func(c *gin.Context, origin string) bool {
+			return origin == "http://sample.com"
+		},
 	})
-	router.POST("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "post")
-	})
-	router.PATCH("/", func(c *gin.Context) {
-		c.String(http.StatusOK, "patch")
-	})
+
 	// no CORS request, origin == ""
 	w := performRequest(router, "GET", "")
 	assert.Equal(t, "get", w.Body.String())
@@ -265,7 +351,7 @@ func TestPassesAllowOrigins(t *testing.T) {
 	// no CORS request, origin == host
 	h := http.Header{}
 	h.Set("Host", "facebook.com")
-	w = performRequestWithHeaders(router, "GET", "http://facebook.com", h)
+	w = performRequestWithHeaders(router, "GET", "/", "http://facebook.com", h)
 	assert.Equal(t, "get", w.Body.String())
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Credentials"))
@@ -300,6 +386,15 @@ func TestPassesAllowOrigins(t *testing.T) {
 	assert.Equal(t, "Content-Type,Timestamp", w.Header().Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "43200", w.Header().Get("Access-Control-Max-Age"))
 
+	// allowed CORS prefligh request: allowed via AllowOriginWithContextFunc
+	w = performRequest(router, "OPTIONS", "http://sample.com")
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, "http://sample.com", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "", w.Header().Get("Access-Control-Allow-Credentials"))
+	assert.Equal(t, "GET,POST,PUT,HEAD", w.Header().Get("Access-Control-Allow-Methods"))
+	assert.Equal(t, "Content-Type,Timestamp", w.Header().Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "43200", w.Header().Get("Access-Control-Max-Age"))
+
 	// deny CORS prefligh request
 	w = performRequest(router, "OPTIONS", "http://example.com")
 	assert.Equal(t, http.StatusForbidden, w.Code)
@@ -311,13 +406,14 @@ func TestPassesAllowOrigins(t *testing.T) {
 }
 
 func TestPassesAllowAllOrigins(t *testing.T) {
-
-	router := gin.New()
-	router.Use(New(WithAllowAllOrigins(true),
-		WithAllowCredentials(false),
-		WithExposeHeaders([]string{"Data2", "x-User2"}),
-		WithAllowHeaders([]string{"Content-type", "  testheader "}),
-		WithAllowMethods([]string{" Patch ", "get", "post", "POST"})))
+	router := newTestRouter(Config{
+		AllowAllOrigins:  true,
+		AllowMethods:     []string{" Patch ", "get", "post", "POST"},
+		AllowHeaders:     []string{"Content-type", "  testheader "},
+		ExposeHeaders:    []string{"Data2", "x-User2"},
+		AllowCredentials: false,
+		MaxAge:           10 * time.Hour,
+	})
 
 	// no CORS request, origin == ""
 	w := performRequest(router, "GET", "")
@@ -346,12 +442,11 @@ func TestPassesAllowAllOrigins(t *testing.T) {
 }
 
 func TestWildcard(t *testing.T) {
-
-	router := gin.New()
-	router.Use(New(
-		WithAllowWildcard(true),
-		WithAllowOrigins([]string{"https://*.github.com", "https://api.*", "http://*", "https://facebook.com", "*.golang.org"}),
-		WithAllowMethods([]string{"GET"})))
+	router := newTestRouter(Config{
+		AllowOrigins:  []string{"https://*.github.com", "https://api.*", "http://*", "https://facebook.com", "*.golang.org"},
+		AllowMethods:  []string{"GET"},
+		AllowWildcard: true,
+	})
 
 	w := performRequest(router, "GET", "https://gist.github.com")
 	assert.Equal(t, 200, w.Code)
@@ -374,14 +469,178 @@ func TestWildcard(t *testing.T) {
 	w = performRequest(router, "GET", "https://something.go.org")
 	assert.Equal(t, 403, w.Code)
 
-	router = gin.New()
-	router.Use(New(
-		WithAllowOrigins([]string{"https://github.com", "https://facebook.com"}),
-		WithAllowMethods([]string{"GET"})))
+	router = newTestRouter(Config{
+		AllowOrigins: []string{"https://github.com", "https://facebook.com"},
+		AllowMethods: []string{"GET"},
+	})
 
 	w = performRequest(router, "GET", "https://gist.github.com")
 	assert.Equal(t, 403, w.Code)
 
 	w = performRequest(router, "GET", "https://github.com")
 	assert.Equal(t, 200, w.Code)
+}
+
+func TestMultiGroupRouter(t *testing.T) {
+	router := multiGroupRouter(Config{
+		AllowMethods: []string{"GET"},
+		AllowOriginWithContextFunc: func(c *gin.Context, origin string) bool {
+			path := c.Request.URL.Path
+			if strings.HasPrefix(path, "/app1") {
+				return origin == "http://app1.example.com"
+			}
+
+			if strings.HasPrefix(path, "/app2") {
+				return origin == "http://app2.example.com"
+			}
+
+			// app 3 allows all origins
+			return true
+		},
+	})
+
+	// allowed CORS prefligh request
+	emptyHeaders := http.Header{}
+	app1Origin := "http://app1.example.com"
+	app2Origin := "http://app2.example.com"
+	randomOrgin := "http://random.com"
+
+	// allowed CORS preflight
+	w := performRequestWithHeaders(router, "OPTIONS", "/app1", app1Origin, emptyHeaders)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	w = performRequestWithHeaders(router, "OPTIONS", "/app2", app2Origin, emptyHeaders)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	w = performRequestWithHeaders(router, "OPTIONS", "/app3", randomOrgin, emptyHeaders)
+	assert.Equal(t, http.StatusNoContent, w.Code)
+
+	// disallowed CORS preflight
+	w = performRequestWithHeaders(router, "OPTIONS", "/app1", randomOrgin, emptyHeaders)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	w = performRequestWithHeaders(router, "OPTIONS", "/app2", randomOrgin, emptyHeaders)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestParseWildcardRules_NoWildcard(t *testing.T) {
+	config := Config{
+		AllowOrigins: []string{
+			"http://example.com",
+			"https://google.com",
+			"github.com",
+		},
+		AllowWildcard: false,
+	}
+
+	var expected [][]string
+
+	result := config.parseWildcardRules()
+
+	assert.Equal(t, expected, result)
+}
+
+func TestParseWildcardRules_InvalidWildcard(t *testing.T) {
+	config := Config{
+		AllowOrigins: []string{
+			"http://example.com",
+			"https://*.google.com*",
+			"*.github.com*",
+		},
+		AllowWildcard: true,
+	}
+
+	assert.Panics(t, func() {
+		config.parseWildcardRules()
+	})
+}
+
+func TestParseWildcardRules(t *testing.T) {
+	tests := []struct {
+		name           string
+		config         Config
+		expectedResult [][]string
+		expectPanic    bool
+	}{
+		{
+			name: "Wildcard not allowed",
+			config: Config{
+				AllowWildcard: false,
+				AllowOrigins:  []string{"http://example.com", "https://*.domain.com"},
+			},
+			expectedResult: nil,
+			expectPanic:    false,
+		},
+		{
+			name: "No wildcards",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"http://example.com", "https://example.com"},
+			},
+			expectedResult: nil,
+			expectPanic:    false,
+		},
+		{
+			name: "Single wildcard at the end",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"http://*.example.com"},
+			},
+			expectedResult: [][]string{{"http://", ".example.com"}},
+			expectPanic:    false,
+		},
+		{
+			name: "Single wildcard at the beginning",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"*.example.com"},
+			},
+			expectedResult: [][]string{{"*", ".example.com"}},
+			expectPanic:    false,
+		},
+		{
+			name: "Single wildcard in the middle",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"http://example.*.com"},
+			},
+			expectedResult: [][]string{{"http://example.", ".com"}},
+			expectPanic:    false,
+		},
+		{
+			name: "Multiple wildcards should panic",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"http://*.*.com"},
+			},
+			expectedResult: nil,
+			expectPanic:    true,
+		},
+		{
+			name: "Single wildcard in the end",
+			config: Config{
+				AllowWildcard: true,
+				AllowOrigins:  []string{"http://example.com/*"},
+			},
+			expectedResult: [][]string{{"http://example.com/", "*"}},
+			expectPanic:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.expectPanic {
+				defer func() {
+					if r := recover(); r == nil {
+						t.Errorf("The code did not panic")
+					}
+				}()
+			}
+
+			result := tt.config.parseWildcardRules()
+			if !tt.expectPanic && !reflect.DeepEqual(result, tt.expectedResult) {
+				t.Errorf("Name: %v, Expected %v, got %v", tt.name, tt.expectedResult, result)
+			}
+		})
+	}
 }
