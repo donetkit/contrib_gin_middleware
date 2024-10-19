@@ -61,7 +61,7 @@ var defaultLogFormatter = func(param LogFormatterParams) string {
 		// Truncate in a golang < 1.8 safe way
 		param.Latency = param.Latency - param.Latency%time.Second
 	}
-	return fmt.Sprintf("%3d | %13v | %15s | %-7s %#v %s",
+	return fmt.Sprintf("%3d | %8v | %15s | %-7s %#v %s",
 		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
@@ -136,22 +136,19 @@ func ErrorLoggerT(typ gin.ErrorType) gin.HandlerFunc {
 				writer := &bodyWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
 				c.Writer = writer
 
-				if len(rawData) <= 1024*1024 {
+				if len(rawData) <= cfg.bodyLength {
 					param.RequestData = string(rawData)
 				} else {
-					param.RequestData = fmt.Sprintf("request data is too large, limit size: %d", 1024*1024)
+					param.ResponseData = fmt.Sprintf("request data is too large, limit size: %d \n%s", cfg.bodyLength, string(writer.body.Bytes()[0:cfg.bodyLength]))
 				}
 
-				if writer.body.Len() <= 1024*1024*2 {
+				if writer.body.Len() <= cfg.rawDataLength {
 					param.ResponseData = writer.body.String()
 				} else {
-					param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d", 1024*1024*2)
+					param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d \n%s", cfg.rawDataLength, string(writer.body.Bytes()[0:cfg.rawDataLength]))
 				}
 
-				cfg.logger.Debug(param.RequestData)
-				cfg.logger.Debug(param.ResponseData)
-
-				cfg.logger.Infof("%s", cfg.formatter(param))
+				cfg.logger.Debugf("%s", cfg.formatter(param))
 
 				if cfg.writerErrorFn != nil {
 					code, msg := cfg.writerErrorFn(c, &param)
