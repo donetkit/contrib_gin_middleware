@@ -61,7 +61,7 @@ var defaultLogFormatter = func(param LogFormatterParams) string {
 		// Truncate in a golang < 1.8 safe way
 		param.Latency = param.Latency - param.Latency%time.Second
 	}
-	return fmt.Sprintf("%3d | %8v | %15s | %-7s %#v %s",
+	return fmt.Sprintf("%3d | %13v | %15s | %-7s %#v %s",
 		param.StatusCode,
 		param.Latency,
 		param.ClientIP,
