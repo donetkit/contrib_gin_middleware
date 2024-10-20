@@ -148,8 +148,7 @@ func ErrorLoggerT(typ gin.ErrorType) gin.HandlerFunc {
 					param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d \n%s", cfg.rawDataLength, string(writer.body.Bytes()[0:cfg.rawDataLength]))
 				}
 
-				cfg.logger.Debugf("%s", cfg.formatter(param))
-
+				cfg.logger.Debugf("%v", param)
 				if cfg.writerErrorFn != nil {
 					code, msg := cfg.writerErrorFn(c, &param)
 					c.JSON(code, msg)
@@ -233,6 +232,8 @@ func New(opts ...Option) gin.HandlerFunc {
 			param.ResponseData = fmt.Sprintf("response data is too large, limit size: %d \n%s", cfg.rawDataLength, string(writer.body.Bytes()[0:cfg.rawDataLength]))
 		}
 
+		cfg.logger.Debugf("Request : %s", param.RequestData)
+		cfg.logger.Debugf("Response: %s", param.ResponseData)
 		cfg.logger.Debugf("%s", cfg.formatter(param))
 
 		if cfg.writerLogFn != nil {
