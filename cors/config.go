@@ -8,15 +8,13 @@ import (
 )
 
 type cors struct {
-	allowAllOrigins            bool
-	allowCredentials           bool
-	allowOriginFunc            func(string) bool
-	allowOriginWithContextFunc func(*gin.Context, string) bool
-	allowOrigins               []string
-	normalHeaders              http.Header
-	preflightHeaders           http.Header
-	wildcardOrigins            [][]string
-	optionsResponseStatusCode  int
+	allowAllOrigins  bool
+	allowCredentials bool
+	allowOriginFunc  func(string) bool
+	allowOrigins     []string
+	normalHeaders    http.Header
+	preflightHeaders http.Header
+	wildcardOrigins  [][]string
 }
 
 var (
@@ -39,7 +37,7 @@ var (
 	}
 )
 
-func newCors(config Config) *cors {
+func newCors(config *Config) *cors {
 	if err := config.Validate(); err != nil {
 		panic(err.Error())
 	}
@@ -50,20 +48,14 @@ func newCors(config Config) *cors {
 		}
 	}
 
-	if config.OptionsResponseStatusCode == 0 {
-		config.OptionsResponseStatusCode = http.StatusNoContent
-	}
-
 	return &cors{
-		allowOriginFunc:            config.AllowOriginFunc,
-		allowOriginWithContextFunc: config.AllowOriginWithContextFunc,
-		allowAllOrigins:            config.AllowAllOrigins,
-		allowCredentials:           config.AllowCredentials,
-		allowOrigins:               normalize(config.AllowOrigins),
-		normalHeaders:              generateNormalHeaders(config),
-		preflightHeaders:           generatePreflightHeaders(config),
-		wildcardOrigins:            config.parseWildcardRules(),
-		optionsResponseStatusCode:  config.OptionsResponseStatusCode,
+		allowOriginFunc:  config.AllowOriginFunc,
+		allowAllOrigins:  config.AllowAllOrigins,
+		allowCredentials: config.AllowCredentials,
+		allowOrigins:     normalize(config.AllowOrigins),
+		normalHeaders:    generateNormalHeaders(config),
+		preflightHeaders: generatePreflightHeaders(config),
+		wildcardOrigins:  config.parseWildcardRules(),
 	}
 }
 
@@ -81,14 +73,14 @@ func (cors *cors) applyCors(c *gin.Context) {
 		return
 	}
 
-	if !cors.isOriginValid(c, origin) {
+	if !cors.validateOrigin(origin) {
 		c.AbortWithStatus(http.StatusForbidden)
 		return
 	}
 
 	if c.Request.Method == "OPTIONS" {
 		cors.handlePreflight(c)
-		defer c.AbortWithStatus(cors.optionsResponseStatusCode)
+		defer c.AbortWithStatus(http.StatusNoContent) // Using 204 is better than 200 when the request status is OPTIONS
 	} else {
 		cors.handleNormal(c)
 	}
@@ -112,14 +104,6 @@ func (cors *cors) validateWildcardOrigin(origin string) bool {
 	}
 
 	return false
-}
-
-func (cors *cors) isOriginValid(c *gin.Context, origin string) bool {
-	valid := cors.validateOrigin(origin)
-	if !valid && cors.allowOriginWithContextFunc != nil {
-		valid = cors.allowOriginWithContextFunc(c, origin)
-	}
-	return valid
 }
 
 func (cors *cors) validateOrigin(origin string) bool {

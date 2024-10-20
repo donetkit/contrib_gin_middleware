@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/donetkit/contrib_gin_middleware/cors"
+	"github.com/donetkit/contrib_gin_middleware/gcors"
 	"github.com/gin-gonic/gin"
 	"time"
 )
@@ -14,7 +14,7 @@ func main() {
 	// - Credentials share
 	// - Preflight requests cached for 12 hours
 
-	router.Use(cors.New(cors.Config{
+	router.Use(gcors.New(gcors.Config{
 		AllowOrigins:     []string{"https://foo.com"},
 		AllowMethods:     []string{"PUT", "PATCH"},
 		AllowHeaders:     []string{"Origin"},
